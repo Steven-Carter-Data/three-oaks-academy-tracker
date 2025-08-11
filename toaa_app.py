@@ -70,8 +70,8 @@ class SupabaseDataManager:
                 raise Exception("No Supabase credentials found in secrets")
                 
         except Exception as e:
-            st.error(f"❌ Could not connect to Supabase: {str(e)}")
-            st.error("Please check your Supabase configuration in secrets.toml")
+            st.error(f"⚠️ Database connection failed: {str(e)}")
+            st.info("🔄 Running in local mode - data will not be saved permanently")
             self.connected = False
     
     def save_attendance(self, date_str, student, present):
@@ -134,8 +134,21 @@ class SupabaseDataManager:
             st.error(f"Error saving assignment: {str(e)}")
             return False
     
+    def delete_assignment(self, date_str, student, category, subject):
+        """Delete an assignment record from Supabase"""
+        if not self.connected:
+            return False
+        
+        try:
+            result = self.supabase.table("assignments").delete().eq("date", date_str).eq("student", student).eq("category", category).eq("subject", subject).execute()
+            return True
+            
+        except Exception as e:
+            st.error(f"Error deleting assignment: {str(e)}")
+            return False
+    
     def save_progress(self, period, student, subject, rating):
-        """Save progress data to Supabase"""
+        """Save progress rating to Supabase"""
         if not self.connected:
             return False
         
@@ -244,44 +257,36 @@ class SupabaseDataManager:
         except Exception as e:
             st.error(f"Error loading progress: {str(e)}")
             return {}
-    
-    def load_all_data(self):
-        """Load all data from Supabase"""
-        return {
-            "attendance": self.load_attendance(),
-            "assignments": self.load_assignments(),
-            "progress_90": self.load_progress("90"),
-            "progress_180": self.load_progress("180")
-        }
-    
-    def create_backup(self):
-        """Create a downloadable backup of all data"""
-        try:
-            data = self.load_all_data()
-            backup_data = {
-                "backup_timestamp": datetime.now().isoformat(),
-                "school_year": f"{SCHOOL_START.strftime('%Y-%m-%d')} to {SCHOOL_END.strftime('%Y-%m-%d')}",
-                "app_version": "3.0_supabase",
-                "data": data
-            }
-            return json.dumps(backup_data, indent=2)
-        except Exception as e:
-            st.error(f"Error creating backup: {e}")
-            return None
 
-# Initialize data manager
-@st.cache_resource
-def get_data_manager():
-    return SupabaseDataManager()
+def load_local_data():
+    """Load data from local JSON file as backup"""
+    try:
+        with open("toaa_data.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {
+            "attendance": {},
+            "assignments": {},
+            "progress_90": {},
+            "progress_180": {}
+        }
+
+def save_local_data(data):
+    """Save data to local JSON file as backup"""
+    try:
+        with open("toaa_data.json", "w") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        st.error(f"Error saving local data: {str(e)}")
 
 def get_school_days():
-    """Calculate school days and milestone dates"""
-    current_date = SCHOOL_START
+    """Calculate all school days and milestone dates"""
     school_days = []
+    current_date = SCHOOL_START
     
     while current_date <= SCHOOL_END:
-        # Skip weekends (optional - remove if you want 7-day weeks)
-        if current_date.weekday() < 5:  # Monday = 0, Friday = 4
+        # Skip weekends (Monday = 0, Sunday = 6)
+        if current_date.weekday() < 5:
             school_days.append(current_date)
         current_date += timedelta(days=1)
     
@@ -335,32 +340,100 @@ def daily_tracking_interface(selected_date, data, data_manager):
             for i, subject in enumerate(subjects):
                 col_idx = i % 3
                 with cols[col_idx]:
-                    assignment_key = f"assignment_{student}_{category}_{subject}_{date_str}"
-                    current_assignment = (data["assignments"]
-                                        .get(date_str, {})
-                                        .get(student, {})
-                                        .get(category, {})
-                                        .get(subject, False))
-                    
-                    new_assignment = st.checkbox(
-                        subject,
-                        value=current_assignment,
-                        key=assignment_key
-                    )
-                    
-                    if new_assignment != current_assignment:
-                        if data_manager.save_assignment(date_str, student, category, subject, new_assignment):
-                            st.success(f"✅ {subject} saved for {student}")
-                            # Update local cache
-                            if date_str not in data["assignments"]:
-                                data["assignments"][date_str] = {}
-                            if student not in data["assignments"][date_str]:
-                                data["assignments"][date_str][student] = {}
-                            if category not in data["assignments"][date_str][student]:
-                                data["assignments"][date_str][student][category] = {}
-                            data["assignments"][date_str][student][category][subject] = new_assignment
+                    # Handle "Other" subject specially
+                    if subject == "Other":
+                        # Check if there's a custom subject already saved for this date
+                        current_assignment_data = (data["assignments"]
+                                                 .get(date_str, {})
+                                                 .get(student, {})
+                                                 .get(category, {}))
+                        
+                        # Look for any custom subjects (keys that aren't in the predefined subjects list)
+                        predefined_subjects = set(STUDENT_CLASSES[student][category])
+                        custom_subjects = [k for k in current_assignment_data.keys() 
+                                         if k not in predefined_subjects and k != "Other"]
+                        
+                        # Text input for custom subject
+                        custom_subject_key = f"custom_{student}_{category}_{date_str}"
+                        
+                        # If there's already a custom subject saved, use it as default
+                        default_custom = custom_subjects[0] if custom_subjects else ""
+                        
+                        custom_subject = st.text_input(
+                            "Other (specify):",
+                            value=default_custom,
+                            placeholder="e.g., field trip, pottery...",
+                            key=custom_subject_key
+                        )
+                        
+                        if custom_subject.strip():
+                            # Use the custom subject name
+                            actual_subject = custom_subject.strip()
+                            
+                            assignment_key = f"assignment_{student}_{category}_{actual_subject}_{date_str}"
+                            current_assignment = current_assignment_data.get(actual_subject, False)
+                            
+                            new_assignment = st.checkbox(
+                                f"Completed: {actual_subject}",
+                                value=current_assignment,
+                                key=assignment_key
+                            )
+                            
+                            if new_assignment != current_assignment:
+                                # Remove old custom subjects if this is a new one
+                                if custom_subjects and actual_subject not in custom_subjects:
+                                    for old_custom in custom_subjects:
+                                        if data_manager.delete_assignment(date_str, student, category, old_custom):
+                                            # Remove from local cache too
+                                            if (date_str in data["assignments"] and 
+                                                student in data["assignments"][date_str] and
+                                                category in data["assignments"][date_str][student]):
+                                                data["assignments"][date_str][student][category].pop(old_custom, None)
+                                
+                                if data_manager.save_assignment(date_str, student, category, actual_subject, new_assignment):
+                                    st.success(f"✅ {actual_subject} saved for {student}")
+                                    # Update local cache
+                                    if date_str not in data["assignments"]:
+                                        data["assignments"][date_str] = {}
+                                    if student not in data["assignments"][date_str]:
+                                        data["assignments"][date_str][student] = {}
+                                    if category not in data["assignments"][date_str][student]:
+                                        data["assignments"][date_str][student][category] = {}
+                                    data["assignments"][date_str][student][category][actual_subject] = new_assignment
+                                else:
+                                    st.error(f"❌ Failed to save {actual_subject} for {student}")
                         else:
-                            st.error(f"❌ Failed to save {subject} for {student}")
+                            # Show placeholder when no custom subject is entered
+                            st.write("Enter a custom subject above")
+                    
+                    else:
+                        # Handle regular predefined subjects
+                        assignment_key = f"assignment_{student}_{category}_{subject}_{date_str}"
+                        current_assignment = (data["assignments"]
+                                            .get(date_str, {})
+                                            .get(student, {})
+                                            .get(category, {})
+                                            .get(subject, False))
+                        
+                        new_assignment = st.checkbox(
+                            subject,
+                            value=current_assignment,
+                            key=assignment_key
+                        )
+                        
+                        if new_assignment != current_assignment:
+                            if data_manager.save_assignment(date_str, student, category, subject, new_assignment):
+                                st.success(f"✅ {subject} saved for {student}")
+                                # Update local cache
+                                if date_str not in data["assignments"]:
+                                    data["assignments"][date_str] = {}
+                                if student not in data["assignments"][date_str]:
+                                    data["assignments"][date_str][student] = {}
+                                if category not in data["assignments"][date_str][student]:
+                                    data["assignments"][date_str][student][category] = {}
+                                data["assignments"][date_str][student][category][subject] = new_assignment
+                            else:
+                                st.error(f"❌ Failed to save {subject} for {student}")
         
         st.markdown("---")
     
@@ -460,42 +533,25 @@ def generate_csv_report(data):
             for category, subjects in STUDENT_CLASSES[student].items():
                 for subject in subjects:
                     completed = assignments.get(category, {}).get(subject, False)
-                    row[f"{category} - {subject}"] = completed
+                    row[f"{category}_{subject}"] = completed
+            
+            # Add any custom subjects not in the predefined list
+            for category, category_data in assignments.items():
+                if category in STUDENT_CLASSES[student]:
+                    predefined_subjects = set(STUDENT_CLASSES[student][category])
+                    for subject, completed in category_data.items():
+                        if subject not in predefined_subjects:
+                            row[f"{category}_{subject}"] = completed
             
             report_data.append(row)
     
-    # Progress data
-    progress_data = []
-    for milestone in ["90", "180"]:
-        progress_key = f"progress_{milestone}"
-        if progress_key in data:
-            for student, subjects in data[progress_key].items():
-                for subject, rating in subjects.items():
-                    if rating:  # Only include if rating is set
-                        progress_data.append({
-                            "Milestone": f"{milestone}-Day",
-                            "Student": student,
-                            "Subject": subject,
-                            "Rating": rating
-                        })
-    
-    # Create Excel file with multiple sheets
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        if report_data:
-            df_attendance = pd.DataFrame(report_data)
-            df_attendance.to_excel(writer, sheet_name='Daily Tracking', index=False)
-        
-        if progress_data:
-            df_progress = pd.DataFrame(progress_data)
-            df_progress.to_excel(writer, sheet_name='Progress Tracking', index=False)
-    
-    return output.getvalue()
+    df = pd.DataFrame(report_data)
+    return df
 
 def generate_pdf_report(data):
     """Generate comprehensive PDF report"""
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch)
+    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=0.75*inch, rightMargin=0.75*inch, topMargin=1*inch, bottomMargin=1*inch)
     styles = getSampleStyleSheet()
     story = []
     
@@ -503,30 +559,28 @@ def generate_pdf_report(data):
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=18,
-        textColor=colors.darkblue,
-        alignment=1
+        fontSize=24,
+        spaceAfter=30,
+        alignment=1  # Center alignment
     )
-    story.append(Paragraph("Three Oaks Academy Comprehensive Progress Report", title_style))
+    story.append(Paragraph("Three Oaks Academy Homeschool Report", title_style))
     story.append(Spacer(1, 20))
     
-    # Report generation info
-    story.append(Paragraph(f"Report Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", styles['Normal']))
+    # Report metadata
+    report_date = datetime.now().strftime("%B %d, %Y")
+    story.append(Paragraph(f"Report Generated: {report_date}", styles['Normal']))
     story.append(Paragraph(f"School Year: {SCHOOL_START.strftime('%B %d, %Y')} - {SCHOOL_END.strftime('%B %d, %Y')}", styles['Normal']))
-    
-    # Calculate report date range
-    all_dates = set()
-    all_dates.update(data.get("attendance", {}).keys())
-    all_dates.update(data.get("assignments", {}).keys())
-    
-    if all_dates:
-        sorted_dates = sorted(all_dates)
-        story.append(Paragraph(f"Data Range: {sorted_dates[0]} to {sorted_dates[-1]} ({len(all_dates)} days tracked)", styles['Normal']))
-    
     story.append(Spacer(1, 20))
     
     # Executive Summary
     story.append(Paragraph("Executive Summary", styles['Heading2']))
+    
+    # Calculate summary statistics
+    all_dates = set()
+    for date_str in data.get("attendance", {}):
+        all_dates.add(date_str)
+    for date_str in data.get("assignments", {}):
+        all_dates.add(date_str)
     
     total_tracked_days = len(all_dates) if all_dates else 0
     school_days, milestone_90, milestone_180 = get_school_days()
@@ -573,7 +627,13 @@ def generate_pdf_report(data):
             completion_data = []
             completion_data.append(['Subject', 'Completed Days', 'Total Days', 'Completion Rate'])
             
-            for subject in subjects:
+            # Get all subjects including custom ones for this student/category
+            all_subjects = set(subjects)
+            for date_str, assignments in data.get("assignments", {}).items():
+                if student in assignments and category in assignments[student]:
+                    all_subjects.update(assignments[student][category].keys())
+            
+            for subject in all_subjects:
                 completed_count = 0
                 total_tracked = 0
                 
@@ -586,62 +646,99 @@ def generate_pdf_report(data):
                 if total_tracked > 0:
                     completion_rate = (completed_count / total_tracked) * 100
                     completion_data.append([
-                        subject, 
-                        str(completed_count), 
-                        str(total_tracked), 
+                        subject,
+                        str(completed_count),
+                        str(total_tracked),
                         f"{completion_rate:.1f}%"
                     ])
-                else:
-                    completion_data.append([subject, "0", "0", "No data"])
             
             if len(completion_data) > 1:
                 table = Table(completion_data, colWidths=[1.5*inch, 1*inch, 1*inch, 1*inch])
                 table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                     ('FONTSIZE', (0, 0), (-1, 0), 10),
                     ('FONTSIZE', (0, 1), (-1, -1), 9),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                     ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
                 ]))
                 story.append(table)
-                story.append(Spacer(1, 10))
-        
-        # Academic Progress Milestones
-        story.append(Paragraph("Academic Progress Milestones", styles['Heading3']))
-        
-        milestone_data = []
-        milestone_data.append(['Milestone', 'Subject', 'Rating'])
-        
-        for milestone in ["90", "180"]:
-            progress_key = f"progress_{milestone}"
-            if progress_key in data and student in data[progress_key]:
-                for subject, rating in data[progress_key][student].items():
-                    if rating:
-                        milestone_data.append([f"{milestone}-Day", subject, rating])
-        
-        if len(milestone_data) > 1:
-            table = Table(milestone_data, colWidths=[1*inch, 2*inch, 1.5*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('FONTSIZE', (0, 1), (-1, -1), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            story.append(table)
-        else:
-            story.append(Paragraph("No milestone assessments completed yet", styles['Normal']))
+            else:
+                story.append(Paragraph("No assignment data recorded for this category", styles['Normal']))
+            
+            story.append(Spacer(1, 10))
         
         story.append(Spacer(1, 20))
+    
+    # Academic Progress Assessment Section
+    story.append(Paragraph("Academic Progress Assessments", styles['Heading2']))
+    
+    # 90-day progress
+    story.append(Paragraph("90-Day Academic Progress", styles['Heading3']))
+    if data.get("progress_90"):
+        progress_data = []
+        progress_data.append(['Student', 'Reading', 'Writing', 'Math', 'Science', 'Social Studies'])
+        
+        for student in STUDENTS:
+            student_progress = data["progress_90"].get(student, {})
+            row = [student]
+            for subject in ACADEMIC_SUBJECTS:
+                rating = student_progress.get(subject, "Not Assessed")
+                row.append(rating)
+            progress_data.append(row)
+        
+        table = Table(progress_data, colWidths=[1.2*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightblue),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(table)
+    else:
+        story.append(Paragraph("No 90-day assessments completed yet", styles['Normal']))
+    
+    story.append(Spacer(1, 15))
+    
+    # 180-day progress
+    story.append(Paragraph("180-Day Academic Progress", styles['Heading3']))
+    if data.get("progress_180"):
+        progress_data = []
+        progress_data.append(['Student', 'Reading', 'Writing', 'Math', 'Science', 'Social Studies'])
+        
+        for student in STUDENTS:
+            student_progress = data["progress_180"].get(student, {})
+            row = [student]
+            for subject in ACADEMIC_SUBJECTS:
+                rating = student_progress.get(subject, "Not Assessed")
+                row.append(rating)
+            progress_data.append(row)
+        
+        table = Table(progress_data, colWidths=[1.2*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightblue),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(table)
+    else:
+        story.append(Paragraph("No 180-day assessments completed yet", styles['Normal']))
+    
+    story.append(Spacer(1, 20))
     
     # Overall Program Summary
     story.append(Paragraph("Overall Program Analysis", styles['Heading2']))
@@ -655,7 +752,13 @@ def generate_pdf_report(data):
             if category not in category_summary:
                 category_summary[category] = {'total_possible': 0, 'total_completed': 0}
             
-            for subject in subjects:
+            # Get all subjects including custom ones
+            all_subjects = set(subjects)
+            for date_str, assignments in data.get("assignments", {}).items():
+                if student in assignments and category in assignments[student]:
+                    all_subjects.update(assignments[student][category].keys())
+            
+            for subject in all_subjects:
                 for date_str, assignments in data.get("assignments", {}).items():
                     if student in assignments and category in assignments[student] and subject in assignments[student][category]:
                         category_summary[category]['total_possible'] += 1
@@ -693,143 +796,44 @@ def generate_pdf_report(data):
     story.append(Spacer(1, 20))
     
     # Footer
-    story.append(Paragraph("This report contains comprehensive homeschool documentation for regulatory compliance and academic record-keeping.", styles['Italic']))
+    story.append(Paragraph("This report contains comprehensive homeschool documentation for regulatory compliance and academic record-keeping.", styles['Normal']))
     
     doc.build(story)
-    return buffer.getvalue()
-
-def reports_interface(data, data_manager):
-    """Interface for generating reports"""
-    st.subheader("Generate Reports")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("📊 Download CSV/Excel Report", use_container_width=True):
-            csv_data = generate_csv_report(data)
-            st.download_button(
-                label="📥 Download Excel Report",
-                data=csv_data,
-                file_name=f"TOAA_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-    
-    with col2:
-        if st.button("📄 Download PDF Report", use_container_width=True):
-            pdf_data = generate_pdf_report(data)
-            st.download_button(
-                label="📥 Download PDF Report",
-                data=pdf_data,
-                file_name=f"TOAA_Report_{datetime.now().strftime('%Y%m%d')}.pdf",
-                mime="application/pdf"
-            )
-    
-    # Data backup section
-    st.markdown("---")
-    st.subheader("🔐 Data Backup")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Download Complete Backup**")
-        backup_data = data_manager.create_backup()
-        if backup_data:
-            st.download_button(
-                "💾 Download Database Backup",
-                backup_data,
-                f"toaa_supabase_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                "application/json",
-                help="Complete backup of all data from Supabase database"
-            )
-    
-    with col2:
-        st.markdown("**Data Summary**")
-        attendance_days = len(data.get("attendance", {}))
-        assignment_days = len(data.get("assignments", {}))
-        progress_90_count = sum(1 for student in data.get("progress_90", {}).values() 
-                               for rating in student.values() if rating)
-        progress_180_count = sum(1 for student in data.get("progress_180", {}).values() 
-                                for rating in student.values() if rating)
-        
-        st.metric("Attendance Days", attendance_days)
-        st.metric("Assignment Days", assignment_days)
-        st.metric("90-Day Assessments", progress_90_count)
-        st.metric("180-Day Assessments", progress_180_count)
-    
-    if data_manager.connected:
-        st.success("🔗 All data is securely stored in Supabase cloud database with automatic backups")
-    else:
-        st.error("❌ Database connection failed - Please check your Supabase configuration")
+    buffer.seek(0)
+    return buffer
 
 def main():
     st.title("🏫 Three Oaks Academy Tracker")
-    st.markdown("Track daily attendance, assignments, and academic progress")
+    st.markdown("Comprehensive homeschool tracking system for attendance, assignments, and academic progress")
     
-    # Initialize data manager and load data
-    data_manager = get_data_manager()
-    
-    # Load data from Supabase (cached for performance)
-    @st.cache_data(ttl=30)  # Cache for 30 seconds
-    def load_data():
-        return data_manager.load_all_data()
+    # Initialize data manager
+    data_manager = SupabaseDataManager()
     
     # Load data
     if data_manager.connected:
-        data = load_data()
+        # Load from Supabase
+        data = {
+            "attendance": data_manager.load_attendance(),
+            "assignments": data_manager.load_assignments(),
+            "progress_90": data_manager.load_progress("90"),
+            "progress_180": data_manager.load_progress("180")
+        }
     else:
-        data = {"attendance": {}, "assignments": {}, "progress_90": {}, "progress_180": {}}
-    
-    # Initialize session state for date selection
-    if 'selected_tracking_date' not in st.session_state:
-        st.session_state.selected_tracking_date = date.today()
+        # Load from local file as backup
+        data = load_local_data()
     
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio(
-        "Choose a page:",
-        ["Daily Tracking", "Progress Tracking", "Reports"]
-    )
+    page = st.sidebar.selectbox("Select Page", ["Daily Tracking", "Progress Tracking", "Reports"])
     
-    # Display school year info
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("**School Year:**")
-    st.sidebar.markdown(f"{SCHOOL_START.strftime('%B %d, %Y')}")
-    st.sidebar.markdown(f"to {SCHOOL_END.strftime('%B %d, %Y')}")
-    
-    school_days, milestone_90, milestone_180 = get_school_days()
-    today = date.today()
-    days_completed = len([d for d in school_days if d <= today])
-    
-    st.sidebar.markdown(f"**Days Completed:** {days_completed}/{len(school_days)}")
-    
-    if milestone_90:
-        st.sidebar.markdown(f"**90-day milestone:** {milestone_90.strftime('%m/%d/%Y')}")
-    if milestone_180:
-        st.sidebar.markdown(f"**180-day milestone:** {milestone_180.strftime('%m/%d/%Y')}")
-    
-    # Database status in sidebar
-    st.sidebar.markdown("---")
-    if data_manager.connected:
-        st.sidebar.success("🔗 Supabase Connected")
-        total_records = (len(data.get("attendance", {})) + len(data.get("assignments", {})))
-        st.sidebar.metric("Records in Database", total_records)
-    else:
-        st.sidebar.error("❌ Database Offline")
-        st.sidebar.markdown("Check configuration")
-    
-    # Main content based on selected page
     if page == "Daily Tracking":
+        # Date selector
         selected_date = st.date_input(
-            "Select Date:",
-            value=st.session_state.selected_tracking_date,
+            "Select Date",
+            value=date.today(),
             min_value=SCHOOL_START,
-            max_value=SCHOOL_END,
-            key="tracking_date_input"
+            max_value=SCHOOL_END
         )
-        
-        if selected_date != st.session_state.selected_tracking_date:
-            st.session_state.selected_tracking_date = selected_date
-            st.rerun()
         
         daily_tracking_interface(selected_date, data, data_manager)
     
@@ -837,16 +841,56 @@ def main():
         progress_tracking_interface(data, data_manager)
     
     elif page == "Reports":
-        reports_interface(data, data_manager)
+        st.subheader("📊 Generate Reports")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📋 Generate CSV Report"):
+                csv_data = generate_csv_report(data)
+                csv_string = csv_data.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV Report",
+                    data=csv_string,
+                    file_name=f"toaa_report_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+                st.success("CSV report generated!")
+        
+        with col2:
+            if st.button("📄 Generate PDF Report"):
+                pdf_buffer = generate_pdf_report(data)
+                st.download_button(
+                    label="Download PDF Report",
+                    data=pdf_buffer,
+                    file_name=f"toaa_comprehensive_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf"
+                )
+                st.success("PDF report generated!")
+        
+        # Data summary
+        st.markdown("### 📈 Data Summary")
+        
+        # Attendance summary
+        total_attendance_records = sum(len(day_data) for day_data in data.get("attendance", {}).values())
+        st.metric("Total Attendance Records", total_attendance_records)
+        
+        # Assignment summary
+        total_assignment_records = 0
+        for date_data in data.get("assignments", {}).values():
+            for student_data in date_data.values():
+                for category_data in student_data.values():
+                    total_assignment_records += len(category_data)
+        st.metric("Total Assignment Records", total_assignment_records)
+        
+        # Progress summary
+        progress_90_records = sum(len(student_data) for student_data in data.get("progress_90", {}).values())
+        progress_180_records = sum(len(student_data) for student_data in data.get("progress_180", {}).values())
+        st.metric("90-Day Progress Records", progress_90_records)
+        st.metric("180-Day Progress Records", progress_180_records)
     
-    # Refresh data button
-    if st.sidebar.button("🔄 Refresh Data"):
-        st.cache_data.clear()
-        st.rerun()
-    
-    # Footer
-    st.markdown("---")
-    st.markdown("*Powered by Basecamp Data Analytics*", unsafe_allow_html=True)
+    # Save local backup regardless of connection status
+    save_local_data(data)
 
 if __name__ == "__main__":
     main()
