@@ -871,12 +871,30 @@ def main():
         # Data summary
         st.markdown("### 📈 Data Summary by Student")
         
-        # Create columns for each student
-        cols = st.columns(len(STUDENTS))
+        # Create columns for each student (stack on mobile)
+        cols = st.columns(len(STUDENTS), gap="medium")
         
         for i, student in enumerate(STUDENTS):
             with cols[i]:
-                st.markdown(f"**{student}**")
+                # Professional styled header with gradient background
+                st.markdown(f"""
+                <div style="
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    padding: 12px;
+                    border-radius: 10px;
+                    text-align: center;
+                    margin-bottom: 15px;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                ">
+                    <h4 style="
+                        color: white;
+                        margin: 0;
+                        font-weight: 600;
+                        font-size: 1.1em;
+                        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+                    ">{student}</h4>
+                </div>
+                """, unsafe_allow_html=True)
                 
                 # Attendance records for this student
                 attendance_count = 0
