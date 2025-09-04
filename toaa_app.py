@@ -869,25 +869,35 @@ def main():
                 st.success("PDF report generated!")
         
         # Data summary
-        st.markdown("### 📈 Data Summary")
+        st.markdown("### 📈 Data Summary by Student")
         
-        # Attendance summary
-        total_attendance_records = sum(len(day_data) for day_data in data.get("attendance", {}).values())
-        st.metric("Total Attendance Records", total_attendance_records)
+        # Create columns for each student
+        cols = st.columns(len(STUDENTS))
         
-        # Assignment summary
-        total_assignment_records = 0
-        for date_data in data.get("assignments", {}).values():
-            for student_data in date_data.values():
-                for category_data in student_data.values():
-                    total_assignment_records += len(category_data)
-        st.metric("Total Assignment Records", total_assignment_records)
-        
-        # Progress summary
-        progress_90_records = sum(len(student_data) for student_data in data.get("progress_90", {}).values())
-        progress_180_records = sum(len(student_data) for student_data in data.get("progress_180", {}).values())
-        st.metric("90-Day Progress Records", progress_90_records)
-        st.metric("180-Day Progress Records", progress_180_records)
+        for i, student in enumerate(STUDENTS):
+            with cols[i]:
+                st.markdown(f"**{student}**")
+                
+                # Attendance records for this student
+                attendance_count = 0
+                for day_data in data.get("attendance", {}).values():
+                    if student in day_data:
+                        attendance_count += 1
+                st.metric("Attendance Records", attendance_count)
+                
+                # Assignment records for this student
+                assignment_count = 0
+                for date_data in data.get("assignments", {}).values():
+                    if student in date_data:
+                        for category_data in date_data[student].values():
+                            assignment_count += len(category_data)
+                st.metric("Assignment Records", assignment_count)
+                
+                # Progress records for this student
+                progress_90_count = len(data.get("progress_90", {}).get(student, {}))
+                progress_180_count = len(data.get("progress_180", {}).get(student, {}))
+                st.metric("90-Day Progress", progress_90_count)
+                st.metric("180-Day Progress", progress_180_count)
     
     # Save local backup regardless of connection status
     save_local_data(data)
