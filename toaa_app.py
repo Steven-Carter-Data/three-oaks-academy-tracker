@@ -298,9 +298,22 @@ def get_school_days():
 def daily_tracking_interface(selected_date, data, data_manager):
     """Interface for daily attendance and assignment tracking"""
     date_str = selected_date.strftime("%Y-%m-%d")
-    
+
     st.subheader(f"Daily Tracking - {selected_date.strftime('%A, %B %d, %Y')}")
-    
+
+    # Initialize session state for temporary data if not exists
+    if 'temp_data' not in st.session_state:
+        st.session_state.temp_data = {
+            'attendance': {},
+            'assignments': {}
+        }
+
+    # Initialize temp data for current date if not exists
+    if date_str not in st.session_state.temp_data['attendance']:
+        st.session_state.temp_data['attendance'][date_str] = {}
+    if date_str not in st.session_state.temp_data['assignments']:
+        st.session_state.temp_data['assignments'][date_str] = {}
+
     # Student filter
     selected_students = st.multiselect(
         "Select Students to Track:",
@@ -314,23 +327,21 @@ def daily_tracking_interface(selected_date, data, data_manager):
         
         # Attendance
         attendance_key = f"attendance_{student}_{date_str}"
-        current_attendance = data["attendance"].get(date_str, {}).get(student, False)
-        
+
+        # Check if we have temp data, otherwise use saved data
+        if student in st.session_state.temp_data['attendance'][date_str]:
+            current_attendance = st.session_state.temp_data['attendance'][date_str][student]
+        else:
+            current_attendance = data["attendance"].get(date_str, {}).get(student, False)
+
         new_attendance = st.checkbox(
-            f"Present", 
+            f"Present",
             value=current_attendance,
             key=attendance_key
         )
-        
-        if new_attendance != current_attendance:
-            if data_manager.save_attendance(date_str, student, new_attendance):
-                st.success(f"✅ Attendance saved for {student}")
-                # Update local cache
-                if date_str not in data["attendance"]:
-                    data["attendance"][date_str] = {}
-                data["attendance"][date_str][student] = new_attendance
-            else:
-                st.error(f"❌ Failed to save attendance for {student}")
+
+        # Store in temporary session state instead of saving immediately
+        st.session_state.temp_data['attendance'][date_str][student] = new_attendance
         
         # Assignments by category
         for category, subjects in STUDENT_CLASSES[student].items():
@@ -342,66 +353,60 @@ def daily_tracking_interface(selected_date, data, data_manager):
                 with cols[col_idx]:
                     # Handle "Other" subject specially
                     if subject == "Other":
-                        # Check if there's a custom subject already saved for this date
-                        current_assignment_data = (data["assignments"]
-                                                 .get(date_str, {})
-                                                 .get(student, {})
-                                                 .get(category, {}))
-                        
+                        # Initialize temp assignment data for this student/category if needed
+                        if student not in st.session_state.temp_data['assignments'][date_str]:
+                            st.session_state.temp_data['assignments'][date_str][student] = {}
+                        if category not in st.session_state.temp_data['assignments'][date_str][student]:
+                            st.session_state.temp_data['assignments'][date_str][student][category] = {}
+
+                        # Check temp data first, then saved data for custom subjects
+                        temp_assignment_data = st.session_state.temp_data['assignments'][date_str][student][category]
+                        saved_assignment_data = (data["assignments"]
+                                               .get(date_str, {})
+                                               .get(student, {})
+                                               .get(category, {}))
+
+                        # Merge temp and saved data, with temp taking precedence
+                        current_assignment_data = {**saved_assignment_data, **temp_assignment_data}
+
                         # Look for any custom subjects (keys that aren't in the predefined subjects list)
                         predefined_subjects = set(STUDENT_CLASSES[student][category])
-                        custom_subjects = [k for k in current_assignment_data.keys() 
+                        custom_subjects = [k for k in current_assignment_data.keys()
                                          if k not in predefined_subjects and k != "Other"]
-                        
+
                         # Text input for custom subject
                         custom_subject_key = f"custom_{student}_{category}_{date_str}"
-                        
+
                         # If there's already a custom subject saved, use it as default
                         default_custom = custom_subjects[0] if custom_subjects else ""
-                        
+
                         custom_subject = st.text_input(
                             "Other (specify):",
                             value=default_custom,
                             placeholder="e.g., field trip, pottery...",
                             key=custom_subject_key
                         )
-                        
+
                         if custom_subject.strip():
                             # Use the custom subject name
                             actual_subject = custom_subject.strip()
-                            
+
                             assignment_key = f"assignment_{student}_{category}_{actual_subject}_{date_str}"
                             current_assignment = current_assignment_data.get(actual_subject, False)
-                            
+
                             new_assignment = st.checkbox(
                                 f"Completed: {actual_subject}",
                                 value=current_assignment,
                                 key=assignment_key
                             )
-                            
-                            if new_assignment != current_assignment:
-                                # Remove old custom subjects if this is a new one
-                                if custom_subjects and actual_subject not in custom_subjects:
-                                    for old_custom in custom_subjects:
-                                        if data_manager.delete_assignment(date_str, student, category, old_custom):
-                                            # Remove from local cache too
-                                            if (date_str in data["assignments"] and 
-                                                student in data["assignments"][date_str] and
-                                                category in data["assignments"][date_str][student]):
-                                                data["assignments"][date_str][student][category].pop(old_custom, None)
-                                
-                                if data_manager.save_assignment(date_str, student, category, actual_subject, new_assignment):
-                                    st.success(f"✅ {actual_subject} saved for {student}")
-                                    # Update local cache
-                                    if date_str not in data["assignments"]:
-                                        data["assignments"][date_str] = {}
-                                    if student not in data["assignments"][date_str]:
-                                        data["assignments"][date_str][student] = {}
-                                    if category not in data["assignments"][date_str][student]:
-                                        data["assignments"][date_str][student][category] = {}
-                                    data["assignments"][date_str][student][category][actual_subject] = new_assignment
-                                else:
-                                    st.error(f"❌ Failed to save {actual_subject} for {student}")
+
+                            # Store in temp data instead of saving immediately
+                            st.session_state.temp_data['assignments'][date_str][student][category][actual_subject] = new_assignment
+
+                            # Remove old custom subjects from temp data if this is a new one
+                            if custom_subjects and actual_subject not in custom_subjects:
+                                for old_custom in custom_subjects:
+                                    st.session_state.temp_data['assignments'][date_str][student][category].pop(old_custom, None)
                         else:
                             # Show placeholder when no custom subject is entered
                             st.write("Enter a custom subject above")
@@ -409,39 +414,126 @@ def daily_tracking_interface(selected_date, data, data_manager):
                     else:
                         # Handle regular predefined subjects
                         assignment_key = f"assignment_{student}_{category}_{subject}_{date_str}"
-                        current_assignment = (data["assignments"]
-                                            .get(date_str, {})
-                                            .get(student, {})
-                                            .get(category, {})
-                                            .get(subject, False))
-                        
+
+                        # Initialize temp assignment data for this student/category if needed
+                        if student not in st.session_state.temp_data['assignments'][date_str]:
+                            st.session_state.temp_data['assignments'][date_str][student] = {}
+                        if category not in st.session_state.temp_data['assignments'][date_str][student]:
+                            st.session_state.temp_data['assignments'][date_str][student][category] = {}
+
+                        # Check temp data first, then saved data
+                        if subject in st.session_state.temp_data['assignments'][date_str][student][category]:
+                            current_assignment = st.session_state.temp_data['assignments'][date_str][student][category][subject]
+                        else:
+                            current_assignment = (data["assignments"]
+                                                .get(date_str, {})
+                                                .get(student, {})
+                                                .get(category, {})
+                                                .get(subject, False))
+
                         new_assignment = st.checkbox(
                             subject,
                             value=current_assignment,
                             key=assignment_key
                         )
-                        
-                        if new_assignment != current_assignment:
-                            if data_manager.save_assignment(date_str, student, category, subject, new_assignment):
-                                st.success(f"✅ {subject} saved for {student}")
-                                # Update local cache
-                                if date_str not in data["assignments"]:
-                                    data["assignments"][date_str] = {}
-                                if student not in data["assignments"][date_str]:
-                                    data["assignments"][date_str][student] = {}
-                                if category not in data["assignments"][date_str][student]:
-                                    data["assignments"][date_str][student][category] = {}
-                                data["assignments"][date_str][student][category][subject] = new_assignment
-                            else:
-                                st.error(f"❌ Failed to save {subject} for {student}")
+
+                        # Store in temp data instead of saving immediately
+                        st.session_state.temp_data['assignments'][date_str][student][category][subject] = new_assignment
         
         st.markdown("---")
-    
+
+    # Save button section
+    st.markdown("### 💾 Save Changes")
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
+            save_success = True
+            save_messages = []
+
+            # Save attendance data
+            for student in selected_students:
+                if student in st.session_state.temp_data['attendance'][date_str]:
+                    attendance_value = st.session_state.temp_data['attendance'][date_str][student]
+                    current_saved = data["attendance"].get(date_str, {}).get(student, False)
+
+                    if attendance_value != current_saved:
+                        if data_manager.save_attendance(date_str, student, attendance_value):
+                            # Update local cache
+                            if date_str not in data["attendance"]:
+                                data["attendance"][date_str] = {}
+                            data["attendance"][date_str][student] = attendance_value
+                            save_messages.append(f"✅ Attendance saved for {student}")
+                        else:
+                            save_success = False
+                            save_messages.append(f"❌ Failed to save attendance for {student}")
+
+            # Save assignment data
+            for student in selected_students:
+                if student in st.session_state.temp_data['assignments'][date_str]:
+                    for category, subjects_data in st.session_state.temp_data['assignments'][date_str][student].items():
+                        # Check for old custom subjects that need to be deleted
+                        saved_subjects = set((data["assignments"]
+                                           .get(date_str, {})
+                                           .get(student, {})
+                                           .get(category, {})).keys())
+                        temp_subjects = set(subjects_data.keys())
+                        predefined_subjects = set(STUDENT_CLASSES[student][category])
+
+                        # Find custom subjects that were removed
+                        custom_subjects_to_delete = saved_subjects - temp_subjects - predefined_subjects
+
+                        # Delete old custom subjects
+                        for old_subject in custom_subjects_to_delete:
+                            if data_manager.delete_assignment(date_str, student, category, old_subject):
+                                # Remove from local cache
+                                if (date_str in data["assignments"] and
+                                    student in data["assignments"][date_str] and
+                                    category in data["assignments"][date_str][student]):
+                                    data["assignments"][date_str][student][category].pop(old_subject, None)
+                                save_messages.append(f"🗑️ Removed old custom subject '{old_subject}' for {student}")
+
+                        # Save current subjects
+                        for subject, completed in subjects_data.items():
+                            current_saved = (data["assignments"]
+                                           .get(date_str, {})
+                                           .get(student, {})
+                                           .get(category, {})
+                                           .get(subject, False))
+
+                            if completed != current_saved:
+                                if data_manager.save_assignment(date_str, student, category, subject, completed):
+                                    # Update local cache
+                                    if date_str not in data["assignments"]:
+                                        data["assignments"][date_str] = {}
+                                    if student not in data["assignments"][date_str]:
+                                        data["assignments"][date_str][student] = {}
+                                    if category not in data["assignments"][date_str][student]:
+                                        data["assignments"][date_str][student][category] = {}
+                                    data["assignments"][date_str][student][category][subject] = completed
+                                    save_messages.append(f"✅ {subject} saved for {student}")
+                                else:
+                                    save_success = False
+                                    save_messages.append(f"❌ Failed to save {subject} for {student}")
+
+            # Display save results
+            if save_success:
+                if save_messages:
+                    st.success("🎉 All changes saved successfully!")
+                    for message in save_messages:
+                        st.write(message)
+                else:
+                    st.info("ℹ️ No changes to save")
+            else:
+                st.error("⚠️ Some changes failed to save:")
+                for message in save_messages:
+                    st.write(message)
+
     # Connection status
     if data_manager.connected:
-        st.success("🔗 Connected to Supabase - All data automatically saved to secure cloud database")
+        st.success("🔗 Connected to Supabase - Ready to save to secure cloud database")
     else:
-        st.error("❌ Database connection failed - Please check configuration")
+        st.error("❌ Database connection failed - Changes will be saved locally only")
 
 def progress_tracking_interface(data, data_manager):
     """Interface for 90-day and 180-day progress tracking"""
