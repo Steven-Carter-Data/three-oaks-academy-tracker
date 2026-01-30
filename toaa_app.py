@@ -26,15 +26,15 @@ STUDENT_CLASSES = {
     "Killian": {
         "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "History", "News review", "Logic", "Other"],
         "UHC Coop": ["Ecology", "Lego Stem", "Literature Discussion", "IEW"],
-        "Velos Coop": ["Drama", "Archery", "Woodworking"]
+        "Velos Coop": ["Drama", "Archery", "Woodworking", "Chess"]
     },
     "Lucy": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Other"],
         "UHC Coop": ["Science", "IEW", "Art", "History"],
         "Velos Coop": ["Drama", "Archery", "Dance"]
     },
     "Vann": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Other"],
         "UHC Coop": ["Science", "IEW", "Art", "History"],
         "Velos Coop": ["Drama", "Archery"]
     }
