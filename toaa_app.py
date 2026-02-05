@@ -17,6 +17,36 @@ st.set_page_config(
     layout="wide"
 )
 
+# Mobile-responsive CSS
+st.markdown("""
+<style>
+    @media (max-width: 768px) {
+        /* Make columns wrap on mobile for better readability */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        [data-testid="column"] {
+            width: calc(50% - 0.5rem) !important;
+            flex: 1 1 calc(50% - 0.5rem) !important;
+            min-width: calc(50% - 0.5rem) !important;
+        }
+        /* Larger touch targets for checkboxes */
+        .stCheckbox label {
+            padding: 6px 0;
+        }
+        /* Ensure text inputs are full-width */
+        .stTextInput input {
+            font-size: 16px !important;
+        }
+        /* Prevent iOS zoom on input focus */
+        input, select, textarea {
+            font-size: 16px !important;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # School year dates
 SCHOOL_START = date(2025, 7, 21)
 SCHOOL_END = date(2026, 5, 31)
@@ -24,17 +54,17 @@ SCHOOL_END = date(2026, 5, 31)
 # Student class hierarchies
 STUDENT_CLASSES = {
     "Killian": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "History", "News review", "Logic", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "History", "News review", "Logic", "Foreign Language", "Other"],
         "UHC Coop": ["Ecology", "Lego Stem", "Literature Discussion", "IEW"],
         "Velos Coop": ["Drama", "Archery", "Woodworking", "Chess"]
     },
     "Lucy": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Foreign Language", "Other"],
         "UHC Coop": ["Science", "IEW", "Art", "History"],
         "Velos Coop": ["Drama", "Archery", "Dance"]
     },
     "Vann": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Foreign Language", "Other"],
         "UHC Coop": ["Science", "IEW", "Art", "History"],
         "Velos Coop": ["Drama", "Archery"]
     }
