@@ -54,17 +54,17 @@ SCHOOL_END = date(2026, 5, 31)
 # Student class hierarchies
 STUDENT_CLASSES = {
     "Killian": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "History", "News review", "Logic", "Foreign Language", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "History", "News review", "Logic", "Foreign Language", "Social Studies", "Other"],
         "UHC Coop": ["Ecology", "Lego Stem", "Literature Discussion", "IEW"],
         "Velos Coop": ["Drama", "Archery", "Woodworking", "Chess"]
     },
     "Lucy": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Foreign Language", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Foreign Language", "Social Studies", "Other"],
         "UHC Coop": ["Science", "IEW", "Art", "History"],
         "Velos Coop": ["Drama", "Archery", "Dance"]
     },
     "Vann": {
-        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Foreign Language", "Other"],
+        "Three Oaks Academy": ["PE", "Math", "Reading", "Cursive", "Typing", "News review", "Logic", "Choral Academy", "Theater", "Foreign Language", "Social Studies", "Other"],
         "UHC Coop": ["Science", "IEW", "Art", "History"],
         "Velos Coop": ["Drama", "Archery"]
     }
